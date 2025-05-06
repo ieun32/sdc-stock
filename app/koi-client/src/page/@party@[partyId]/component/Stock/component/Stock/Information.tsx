@@ -1,34 +1,106 @@
-import dayjs from 'dayjs';
-import { useAtomValue } from 'jotai';
 import { css } from '@emotion/react';
 import styled from '@emotion/styled';
-import { getDateDistance } from '@toss/date';
 import { commaizeNumber, objectEntries } from '@toss/utils';
-
-import { useEffect, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MessageInstance } from 'antd/es/message/interface';
 import InfoBox from '../../../../../../component-presentation/InfoBox';
 import { colorDown, colorUp } from '../../../../../../config/color';
 import { Query } from '../../../../../../hook';
 import prependZero from '../../../../../../service/prependZero';
 import { UserStore } from '../../../../../../store';
+import { getAnimalImageSource, getFormattedGameTime, getStockMessages } from '../../../../../../utils/stock';
 import DrawStockInfo from './DrawInfo';
+import StockDrawer from './StockDrawer';
 
 interface Props {
   stockId: string;
+  messageApi: MessageInstance;
 }
 
-const getFormattedGameTime = (startTime?: string) => {
-  if (!startTime) return '00:00';
-
-  return `${prependZero(getDateDistance(dayjs(startTime).toDate(), new Date()).minutes, 2)}:${prependZero(
-    getDateDistance(dayjs(startTime).toDate(), new Date()).seconds,
-    2,
-  )}`;
-};
-
-const Information = ({ stockId }: Props) => {
+const Information = ({ stockId, messageApi }: Props) => {
   const supabaseSession = useAtomValue(UserStore.supabaseSession);
   const userId = supabaseSession?.user.id;
+
+  const { data: stock, timeIdx } = Query.Stock.useQueryStock(stockId);
+  const { user } = Query.Stock.useUser({ stockId, userId });
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState('');
+
+  const priceData = useMemo(() => {
+    const result: Record<string, number[]> = {};
+    objectEntries(stock?.companies ?? {}).forEach(([company, companyInfos]) => {
+      result[company] = companyInfos.map(({ 가격 }) => 가격);
+    });
+    return result;
+  }, [stock?.companies]);
+
+  // const 미보유주식 = useMemo(() => {
+  //   return objectValues(COMPANY_NAMES).filter((company) => !보유주식.some(({ company: c }) => c === company));
+  // }, [보유주식]);
+
+  if (!stock || !userId || !user) {
+    return <>불러오는 중</>;
+  }
+
+  const myInfos = objectEntries(stock.companies).flatMap(([company, companyInfos]) =>
+    companyInfos.reduce((acc, companyInfo, idx) => {
+      if (companyInfo.정보.includes(userId)) {
+        acc.push({
+          company,
+          price: idx > 0 ? companyInfo.가격 - companyInfos[idx - 1].가격 : 0,
+          timeIdx: idx,
+        });
+      }
+      return acc;
+    }, [] as Array<{ company: string; timeIdx: number; price: number }>),
+  );
+
+  const stockMessages = getStockMessages({
+    companyName: selectedCompany,
+    currentTimeIdx: timeIdx ?? 0,
+    stockInfos: myInfos,
+  });
+
+  const handleOpenDrawer = (company: string) => {
+    setSelectedCompany(company);
+    setDrawerOpen(true);
+  };
+
+  const handleCloseDrawer = () => {
+    setSelectedCompany('');
+    setDrawerOpen(false);
+  };
+
+  return (
+    <>
+      <InformationItems stockId={stockId} onClick={handleOpenDrawer} myInfos={myInfos} />
+      <StockDrawer
+        drawerOpen={drawerOpen}
+        handleCloseDrawer={handleCloseDrawer}
+        selectedCompany={selectedCompany}
+        stockMessages={stockMessages}
+        priceData={priceData}
+        stockId={stockId}
+        messageApi={messageApi}
+      />
+    </>
+  );
+};
+
+export default Information;
+
+interface InformationItemsProps {
+  stockId: string;
+  onClick: (company: string) => void;
+  myInfos: Array<{ company: string; timeIdx: number; price: number }>;
+}
+
+const InformationItems = ({ stockId, onClick, myInfos }: InformationItemsProps) => {
+  const supabaseSession = useAtomValue(UserStore.supabaseSession);
+  const userId = supabaseSession?.user.id;
+
   const { data: stock, refetch } = Query.Stock.useQueryStock(stockId);
   const { user } = Query.Stock.useUser({ stockId, userId });
   const [gameTime, setGameTime] = useState(getFormattedGameTime(stock?.startedTime));
@@ -62,19 +134,6 @@ const Information = ({ stockId }: Props) => {
 
   const gameTimeInSeconds = parseInt(gameTime.split(':')[0], 10) * 60 + parseInt(gameTime.split(':')[1], 10);
   const gameTimeInMinutes = Math.ceil(parseInt(gameTime.split(':')[0], 10));
-
-  const myInfos = objectEntries(stock.companies).reduce((myInfos, [company, companyInfos]) => {
-    companyInfos.forEach((companyInfo, idx) => {
-      if (companyInfo.정보.some((name) => name === userId)) {
-        myInfos.push({
-          company,
-          price: idx > 0 ? companyInfo.가격 - companyInfos[idx - 1].가격 : 0,
-          timeIdx: idx,
-        });
-      }
-    });
-    return myInfos;
-  }, [] as Array<{ company: string; timeIdx: number; price: number }>);
 
   const { futureInfos, pastInfos } = myInfos.reduce(
     (acc, info) => {
@@ -111,7 +170,9 @@ const Information = ({ stockId }: Props) => {
         return (
           <InfoBox
             key={`${company}_${timeIdx}`}
-            title={company}
+            title={company.slice(0, 4)}
+            onClick={() => onClick(company)}
+            src={getAnimalImageSource(company)}
             value={`${price >= 0 ? '▲' : '▼'}${commaizeNumber(Math.abs(price))}`}
             valueColor={price >= 0 ? colorUp : colorDown}
             leftTime={
@@ -140,6 +201,7 @@ const Information = ({ stockId }: Props) => {
           />
         );
       })}
+      {futureInfos.length === 0 && <Empty>현재 시각 이후의 정보가 없습니다</Empty>}
 
       <Divider />
 
@@ -148,42 +210,44 @@ const Information = ({ stockId }: Props) => {
         <H2>{pastInfos.length}개 보유</H2>
       </TitleWrapper>
 
-      <DimContainer>
-        {pastInfos.map(({ company, price, timeIdx }) => {
-          const pastTime = gameTimeInMinutes - timeIdx * stock.fluctuationsInterval;
-          return (
-            <InfoBox
-              key={`${company}_${timeIdx}`}
-              title={company}
-              value={`${price >= 0 ? '▲' : '▼'}${commaizeNumber(Math.abs(price))}`}
-              valueColor={price >= 0 ? colorUp : colorDown}
-              leftTime={
-                <div
-                  css={css`
-                    font-size: 14px;
-                    color: #ffffff;
-                    min-width: 50px;
-                    letter-spacing: 0.5px;
-                  `}
-                >
-                  {pastTime <= 1 ? '방금 전' : `${pastTime}분 전`}
-                </div>
-              }
-              changeTime={
-                <div
-                  css={css`
-                    font-size: 12px;
-                    color: #9ca3af;
-                    letter-spacing: 0.5px;
-                  `}
-                >
-                  {prependZero(timeIdx * stock.fluctuationsInterval, 2)}:00
-                </div>
-              }
-            />
-          );
-        })}
-      </DimContainer>
+      {pastInfos.map(({ company, price, timeIdx }) => {
+        const pastTime = gameTimeInMinutes - timeIdx * stock.fluctuationsInterval;
+        return (
+          <InfoBox
+            key={`${company}_${timeIdx}`}
+            title={company.slice(0, 4)}
+            src={getAnimalImageSource(company)}
+            value={`${price >= 0 ? '▲' : '▼'}${commaizeNumber(Math.abs(price))}`}
+            valueColor={price >= 0 ? colorUp : colorDown}
+            opacity={0.5}
+            onClick={() => onClick(company)}
+            leftTime={
+              <div
+                css={css`
+                  font-size: 14px;
+                  color: #ffffff;
+                  min-width: 50px;
+                  letter-spacing: 0.5px;
+                `}
+              >
+                {pastTime <= 1 ? '방금 전' : `${pastTime}분 전`}
+              </div>
+            }
+            changeTime={
+              <div
+                css={css`
+                  font-size: 12px;
+                  color: #9ca3af;
+                  letter-spacing: 0.5px;
+                `}
+              >
+                {prependZero(timeIdx * stock.fluctuationsInterval, 2)}:00
+              </div>
+            }
+          />
+        );
+      })}
+      {pastInfos.length === 0 && <Empty>현재 시각 이전의 정보가 없습니다</Empty>}
       <StickyBottom>
         <DrawStockInfo stockId={stockId} />
       </StickyBottom>
@@ -196,7 +260,7 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-bottom: 100px;
+  padding-bottom: 108px;
 `;
 
 const TitleWrapper = styled.div`
@@ -220,18 +284,20 @@ const H2 = styled.div`
   background-color: rgba(192, 132, 252, 0.2);
 `;
 
+const Empty = styled.h4`
+  font-size: 12px;
+  font-weight: 500;
+  color: #d4d4d8;
+  width: 100%;
+  opacity: 70%;
+  text-align: center;
+  padding: 28px 0 24px;
+`;
+
 const Divider = styled.div`
   border-top: 1px solid #374151;
   margin-top: 8px;
   margin-bottom: 8px;
-`;
-
-const DimContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  opacity: 0.5;
-  pointer-events: none;
 `;
 
 const StickyBottom = styled.div`
@@ -241,8 +307,6 @@ const StickyBottom = styled.div`
   width: 100%;
   background-color: #252836;
   border-top: 1px solid #374151;
-  padding: 20px;
+  padding: 16px;
   box-sizing: border-box;
 `;
-
-export default Information;

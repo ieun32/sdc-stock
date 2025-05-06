@@ -8,8 +8,9 @@ import mongoose, {
   QueryOptions,
   UpdateQuery,
 } from 'mongoose';
-import { DeleteOptions, UpdateOptions } from 'mongodb';
-import { Response } from 'shared~type-stock';
+import { CountOptions, DeleteOptions, UpdateOptions } from 'mongodb';
+import { StockConfig } from 'shared~config';
+import { StockStorageSchema } from 'shared~type-stock';
 import { StockUser, UserDocument } from './user.schema';
 
 @Injectable()
@@ -20,29 +21,30 @@ export class UserRepository {
     private readonly userModel: Model<StockUser>,
   ) {}
 
-  async create(user: StockUser): Promise<Response.GetCreateUser> {
+  async create(user: StockUser): Promise<void> {
     const session = await this.connection.startSession();
 
     try {
-      const result = await session.withTransaction(async () => {
+      await session.withTransaction(async () => {
         const doc = await this.findOne({ stockId: user.stockId, userId: user.userId }, null, {
           session,
         });
         if (!doc) {
           const newStockUser = new StockUser(user, user);
           const newDoc = new this.userModel(newStockUser);
-          const updatedDoc = await newDoc.save({ session });
-          return { isAlreadyExists: false, user: updatedDoc };
+          await newDoc.save({ session });
         }
-        return { isAlreadyExists: true, user: doc };
       });
-      return result;
     } catch (err) {
       console.error(err);
       throw new HttpException('POST /stock/user/register Unknown Error', 500, { cause: err });
     } finally {
       await session.endSession();
     }
+  }
+
+  async count(filter: FilterQuery<StockUser>): Promise<number> {
+    return this.userModel.countDocuments(filter);
   }
 
   find(
@@ -104,13 +106,21 @@ export class UserRepository {
     options?: UpdateOptions & Omit<MongooseQueryOptions<StockUser>, 'lean'>,
   ): Promise<boolean> {
     try {
+      const companies = StockConfig.getRandomCompanyNames();
+      const stockStorages = companies.map((company) => {
+        return {
+          companyName: company,
+          stockCountCurrent: 0,
+          stockCountHistory: new Array(StockConfig.MAX_STOCK_IDX + 1).fill(0),
+        } as StockStorageSchema;
+      });
       return !!(await this.userModel.updateMany(
         { stockId },
         {
           $set: {
-            inventory: {},
             lastActivityTime: new Date(),
-            money: 1000000,
+            money: StockConfig.INIT_USER_MONEY,
+            stockStorages,
           },
         },
         options,
@@ -118,5 +128,12 @@ export class UserRepository {
     } catch (e: unknown) {
       throw new Error(e as string);
     }
+  }
+
+  async countDocuments(
+    filter: FilterQuery<StockUser>,
+    options?: CountOptions & Omit<MongooseQueryOptions<StockUser>, 'lean' | 'timestamps'>,
+  ): Promise<number> {
+    return this.userModel.countDocuments(filter, options);
   }
 }

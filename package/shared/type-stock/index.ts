@@ -12,15 +12,21 @@ export type StockUserInfoSchema = {
   introduction?: string;
 };
 
+export type StockStorageSchema = {
+  companyName: string;
+  stockCountCurrent: number;
+  stockCountHistory: number[];
+};
+
 export type StockUserSchema = {
   stockId: string;
   userId: string;
   userInfo: StockUserInfoSchema;
   index: number;
   money: number;
-  inventory: Record<string, number>;
   lastActivityTime: Date;
   loanCount: number;
+  stockStorages: StockStorageSchema[];
 };
 
 const StockPhase = {
@@ -72,6 +78,8 @@ export type StockLogSchema = {
   company: string;
   price: number;
   quantity: number;
+  status: 'QUEUING' | 'SUCCESS' | 'FAILED' | 'CANCEL';
+  failedReason?: string;
 };
 
 export type ResultSchema = {

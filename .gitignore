@@ -14,17 +14,22 @@ dist
 out
 node_modules
 turbo-build.log
+mcp.json
 
 # mac
 .DS_Store
 
 /app/server/public/avatar
 /app/koi-server/dev/main.js
+/app/sdc-sqs-worker/dev/main.js
+/app/sdc-sqs-producer/dev/main.js
 .env
 /test-results/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
 
-# windsurf rules
+# IDE rules
 .windsurfrules
+.cursor/
+.cursorrules

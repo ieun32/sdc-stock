@@ -1,16 +1,47 @@
-import { Body, Controller, Delete, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpException, HttpStatus, Post, Query } from '@nestjs/common';
 import { Request, Response } from 'shared~type-stock';
+import { HttpService } from '@nestjs/axios';
 import { UserService } from './user.service';
 import { StockUser } from './user.schema';
+import { UserRepository } from './user.repository';
 
 @Controller('/stock/user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly userService: UserService,
+    private readonly userRepository: UserRepository,
+  ) {}
 
   @Get()
   async getUsers(@Query('stockId') stockId: string): Promise<Response.GetStockUser[]> {
     const users = await this.userService.getUserList(stockId);
     return users.map((user) => this.userService.transStockUserToDto(user));
+  }
+
+  @Get('/recommended-partners')
+  async getRecommendedPartners(@Query('stockId') stockId: string, @Query('userId') userId: string): Promise<string[]> {
+    return this.userService.getRecommendedPartners(stockId, userId);
+  }
+
+  @Get('/count')
+  async getUserCount(@Query('stockId') stockId: string): Promise<{ count: number }> {
+    const count = await this.userRepository.count({ stockId });
+    return { count };
+  }
+
+  @Get('/find-one')
+  async findOneUser(
+    @Query('stockId') stockId: string,
+    @Query('userId') userId: string,
+  ): Promise<Response.GetStockUser> {
+    const user = await this.userService.findOneByUserId(stockId, userId);
+
+    if (!user) {
+      throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+    }
+
+    return this.userService.transStockUserToDto(user);
   }
 
   @Post()
@@ -20,7 +51,14 @@ export class UserController {
 
   @Post('/register')
   async registerUser(@Body() body: StockUser): Promise<Response.GetCreateUser> {
-    return this.userService.registerUser(body);
+    console.log('🚀 ~ UserController ~ registerUser ~ body:', body);
+    await this.userRepository.create(body);
+    return { messageId: 'direct' };
+  }
+
+  @Post('/align-index')
+  async alignIndex(@Query('stockId') stockId: string): Promise<void> {
+    return this.userService.alignIndex(stockId);
   }
 
   @Post('/introduce')

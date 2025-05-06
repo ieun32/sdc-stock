@@ -21,3 +21,8 @@ export { default as useDrawStockInfo } from './useDrawStockInfo';
 export { default as useStartLoan } from './useStartLoan';
 export { default as useSetPhase } from './useSetPhase';
 export { default as useRegisterUser } from './useRegisterUser';
+export { default as useUserAlignIndex } from './useUserAlignIndex';
+export { default as useUserFindOne } from './useUserFindOne';
+export { default as useAllUserSellPriceDesc } from './useAllUserSellPriceDesc';
+export { default as useMyAllSellPrice } from './useMyAllSellPrice';
+export { default as useUserCount } from './useUserCount';
